@@ -1,9 +1,19 @@
 import { describe, it, expect } from "vitest";
 import { StateMachine, StorageEngine, loadConfig } from "@forge/core";
 import { MockModelAdapter } from "@forge/model";
-import { ToolRouter, ReadFileTool, ListDirTool, GitStatusTool } from "@forge/tools";
+import {
+  ToolRouter,
+  ReadFileTool,
+  ListDirTool,
+  GitStatusTool,
+  GitDiffTool,
+  GitLogTool,
+  SearchTextTool,
+  DiscoverInstructionsTool,
+  GenerateRepoMapTool
+} from "@forge/tools";
 
-describe("Forge Harness Core Suite", () => {
+describe("Forge Harness Core & Tool Suite", () => {
   it("transitions state machine correctly", () => {
     const sm = new StateMachine("INTAKE");
     expect(sm.getState()).toBe("INTAKE");
@@ -63,19 +73,37 @@ describe("Forge Harness Core Suite", () => {
     expect(listRes.success).toBe(true);
   });
 
-  it("handles model adapter calls", async () => {
-    const adapter = new MockModelAdapter([
-      {
-        text: "Custom plan response",
-        toolCalls: [],
-        usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 }
-      }
-    ]);
+  it("discovers instructions, runs search, and generates repo map (Phase 1)", async () => {
+    const router = new ToolRouter();
+    router.register(DiscoverInstructionsTool);
+    router.register(SearchTextTool);
+    router.register(GitDiffTool);
+    router.register(GitLogTool);
+    router.register(GenerateRepoMapTool);
 
-    const res = await adapter.generate({
-      messages: [{ role: "user", content: "Implement feature" }]
-    });
+    const ctx = {
+      taskId: "phase-1-test",
+      repoPath: process.cwd(),
+      logger: console
+    };
 
-    expect(res.text).toBe("Custom plan response");
+    // 1. Discover instructions
+    const instRes = await router.execute("discover_instructions", {}, ctx);
+    expect(instRes.success).toBe(true);
+    expect((instRes.data as any).totalFound).toBeGreaterThan(0);
+
+    // 2. Search text
+    const searchRes = await router.execute("search_text", { query: "Forge" }, ctx);
+    expect(searchRes.success).toBe(true);
+    expect((searchRes.data as any).totalMatches).toBeGreaterThan(0);
+
+    // 3. Generate repo map
+    const mapRes = await router.execute("generate_repo_map", {}, ctx);
+    expect(mapRes.success).toBe(true);
+    expect((mapRes.data as any).estimatedTokens).toBeLessThan(2000);
+
+    // 4. Git log
+    const logRes = await router.execute("git_log", { maxCount: 5 }, ctx);
+    expect(logRes.success).toBe(true);
   });
 });
